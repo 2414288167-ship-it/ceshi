@@ -1,9 +1,7 @@
-// src/lib/MyTheme.tsx
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
-// 1. 定义完整的类型 (配合你的外观页面)
 interface ThemeSettings {
   homeWallpaper: string;
   chatWallpaper: string;
@@ -15,7 +13,6 @@ interface ThemeSettings {
   customCss: string;
 }
 
-// 2. 设置默认值
 const defaultSettings: ThemeSettings = {
   homeWallpaper:
     "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800&q=80",
@@ -31,22 +28,25 @@ const defaultSettings: ThemeSettings = {
 interface ThemeContextType {
   settings: ThemeSettings;
   updateSetting: (key: keyof ThemeSettings, value: any) => void;
+  resetSettings: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function MyThemeProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
+  // const [isLoaded, setIsLoaded] = useState(false); // ❌ 删掉这个状态，不再阻断渲染
 
   useEffect(() => {
     const saved = localStorage.getItem("my_theme_settings");
     if (saved) {
       try {
-        setSettings({ ...defaultSettings, ...JSON.parse(saved) });
+        setSettings((prev) => ({ ...prev, ...JSON.parse(saved) }));
       } catch (e) {
         console.error(e);
       }
     }
+    // setIsLoaded(true); // ❌ 不需要了
   }, []);
 
   const updateSetting = (key: keyof ThemeSettings, value: any) => {
@@ -57,12 +57,23 @@ export function MyThemeProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const resetSettings = () => {
+    setSettings(defaultSettings);
+    localStorage.removeItem("my_theme_settings");
+  };
+
   return (
-    <ThemeContext.Provider value={{ settings, updateSetting }}>
-      {/* 注入全局 CSS */}
+    <ThemeContext.Provider value={{ settings, updateSetting, resetSettings }}>
+      {/* 
+         注入自定义 CSS
+         如果有自定义壁纸，我们可以用简单的 opacity 动画来缓解加载闪烁，
+         而不是粗暴地不渲染 Provider。
+      */}
       {settings.customCss && (
         <style dangerouslySetInnerHTML={{ __html: settings.customCss }} />
       )}
+
+      {/* 始终包裹 Provider，绝对不能返回裸的 children */}
       {children}
     </ThemeContext.Provider>
   );

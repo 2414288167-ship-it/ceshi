@@ -1,365 +1,302 @@
 "use client";
-
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { MessageList, Message } from "./MessageList";
-import { InputArea } from "./InputArea";
-import { InputProvider } from "@/context/InputContext";
-import { Menu, ChevronLeft } from "lucide-react";
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import MessageList, { Message } from "@/components/MessageList";
+import { InputArea } from "@/components/InputArea";
+import { Menu, ChevronLeft, Share, Star, Trash2, X } from "lucide-react";
+import { useAI } from "@/context/AIContext";
+import { useUnread } from "@/context/UnreadContext";
+
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
 
 interface ChatPageProps {
-  conversationId?: string;
+  conversationId: string;
   contactName?: string;
+}
+
+interface UserProfile {
+  avatar: string;
+  personas: { id: string; name: string; avatar: string }[];
 }
 
 export default function ChatPage({
   conversationId,
   contactName = "AI助手",
 }: ChatPageProps) {
+  // ✅ 获取 regenerateChat
+  const { requestAIReply, getChatState, triggerActiveMessage, regenerateChat } =
+    useAI();
+  const { clearUnread } = useUnread();
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [aiState, setAiState] = useState<
-    "idle" | "waiting" | "thinking" | "typing"
-  >("idle");
-
   const [bgImage, setBgImage] = useState<string | null>(null);
-  const [localWeather, setLocalWeather] = useState<string>("");
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [contactInfo, setContactInfo] = useState<any>(null);
+  const [myAvatar, setMyAvatar] = useState<string>("");
 
-  const [contactInfo, setContactInfo] = useState<{
-    name: string;
-    avatar: string;
-    aiName: string;
-    myNickname: string;
-    intro?: string;
-    aiPersona?: string;
-    weatherSync?: boolean;
-    location?: string;
-    asideMode?: boolean;
-    descMode?: boolean;
-    timeSense?: boolean;
-    timezone?: string;
-  } | null>(null);
+  // ✅ 多选模式状态
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const replyTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // =========================================================
-  // 1. 修改语音 Hook 回调：直接发送语音气泡
-  // =========================================================
-  useSpeechRecognition((text, duration) => {
-    if (!text) return;
-    // 直接调用发送逻辑，传入 type='audio' 和 duration
-    handleUserSend(text, "audio", duration);
-  });
+  const reloadMessages = () => {
+    if (!conversationId) return;
+    const savedMsgs = localStorage.getItem(`chat_${conversationId}`);
+    if (savedMsgs) setMessages(JSON.parse(savedMsgs));
+  };
 
-  // 初始化逻辑 (保持不变)
   useEffect(() => {
     if (conversationId && typeof window !== "undefined") {
-      try {
-        const contactsStr = localStorage.getItem("contacts");
-        if (contactsStr) {
-          const contacts = JSON.parse(contactsStr);
-          const contact = contacts.find(
-            (c: any) => String(c.id) === String(conversationId)
+      const contactsStr = localStorage.getItem("contacts");
+      let currentContact = null;
+      if (contactsStr) {
+        const contacts = JSON.parse(contactsStr);
+        currentContact = contacts.find(
+          (c: any) => String(c.id) === String(conversationId)
+        );
+        if (currentContact) {
+          setContactInfo({
+            ...currentContact,
+            name: currentContact.remark || currentContact.name,
+            aiName: currentContact.aiName || currentContact.name,
+            myNickname: "我",
+          });
+        } else {
+          setContactInfo({
+            name: contactName,
+            avatar: "🐱",
+            aiName: contactName,
+            myNickname: "我",
+          });
+        }
+      }
+
+      const userProfileStr = localStorage.getItem("user_profile_v4");
+      let finalMyAvatar = "";
+      if (userProfileStr) {
+        try {
+          const profile: UserProfile = JSON.parse(userProfileStr);
+          const boundPersonaId = currentContact?.userPersonaId || "default";
+          const targetPersona = profile.personas?.find(
+            (p) => p.id === boundPersonaId
           );
-          if (contact) {
-            setContactInfo({
-              name: contact.remark || contact.name,
-              avatar: contact.avatar || "🐱",
-              aiName: contact.name || contact.name,
-              myNickname: contact.myNickname || "我",
-              intro: contact.intro,
-              aiPersona: contact.aiPersona,
-              weatherSync: contact.weatherSync,
-              location: contact.location,
-              asideMode: contact.asideMode,
-              descMode: contact.descMode,
-              timeSense: contact.timeSense,
-              timezone: contact.timezone || "Asia/Shanghai",
-            });
-            const savedMsgs = localStorage.getItem(`chat_${conversationId}`);
-            if (savedMsgs) setMessages(JSON.parse(savedMsgs));
-
-            if (contact.weatherSync) {
-              fetchWeather(contact.location);
-            }
-          } else {
-            setContactInfo({
-              name: contactName,
-              avatar: "🐱",
-              aiName: contactName,
-              myNickname: "我",
-            });
-          }
-        }
-        const savedBg = localStorage.getItem(`chat_bg_${conversationId}`);
-        if (savedBg) setBgImage(savedBg);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, [conversationId, contactName]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    if (input.trim().length > 0) {
-      if (replyTimerRef.current) {
-        clearTimeout(replyTimerRef.current);
-        replyTimerRef.current = null;
-      }
-      if (aiState === "waiting") setAiState("idle");
-    }
-  }, [input, aiState]);
-
-  const fetchWeather = async (location: string = "") => {
-    try {
-      const query = location ? encodeURIComponent(location) : "";
-      const url = `https://wttr.in/${query}?format=3`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        setLocalWeather(text.trim());
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const getCurrentTime = (timeZone: string) => {
-    try {
-      const now = new Date();
-      return now.toLocaleString("zh-CN", {
-        timeZone: timeZone,
-        hour12: false,
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "numeric",
-      });
-    } catch (e) {
-      return new Date().toLocaleString();
-    }
-  };
-
-  const triggerAIResponse = async (currentMessages: Message[]) => {
-    setAiState("thinking");
-    try {
-      const apiKey = localStorage.getItem("ai_api_key")?.trim();
-      let proxyUrl = localStorage.getItem("ai_proxy_url")?.trim();
-      const model = localStorage.getItem("ai_model")?.trim() || "gpt-3.5-turbo";
-      if (!apiKey) throw new Error("API Key Missing");
-      if (!proxyUrl) proxyUrl = "https://api.openai.com/v1";
-      proxyUrl = proxyUrl.replace(/\/+$/, "");
-      let fetchUrl = proxyUrl.includes("/chat/completions")
-        ? proxyUrl
-        : proxyUrl.endsWith("/v1")
-        ? `${proxyUrl}/chat/completions`
-        : `${proxyUrl}/v1/chat/completions`;
-
-      let finalSystemPrompt = "";
-      finalSystemPrompt += `你现在进行角色扮演。你的名字是：${contactInfo?.aiName}。\n`;
-      finalSystemPrompt += `你的对话对象是：${contactInfo?.myNickname}。\n`;
-
-      if (contactInfo?.aiPersona)
-        finalSystemPrompt += `【你的详细人设】：\n${contactInfo.aiPersona}\n`;
-      else if (contactInfo?.intro)
-        finalSystemPrompt += `【人设背景】：${contactInfo.intro}\n`;
-
-      finalSystemPrompt += `\n【环境感知】：\n`;
-      if (contactInfo?.timeSense)
-        finalSystemPrompt += `- 当前时间：${getCurrentTime(
-          contactInfo?.timezone || "Asia/Shanghai"
-        )}\n`;
-      if (contactInfo?.weatherSync && localWeather)
-        finalSystemPrompt += `- ${
-          contactInfo?.location || "当前位置"
-        } 天气：${localWeather}\n`;
-
-      finalSystemPrompt += `\n【回复指令】：\n1. 随机决定回复条数，如需分段用 || 隔开。\n`;
-      if (contactInfo?.asideMode)
-        finalSystemPrompt += `2. [旁白模式]：用（括号）描写心理/动作。\n`;
-      if (contactInfo?.descMode)
-        finalSystemPrompt += `3. [描写模式]：侧重动作描写。\n`;
-      else finalSystemPrompt += `2. 保持口语化。\n`;
-
-      const response = await fetch(fetchUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          stream: true,
-          messages: [
-            { role: "system", content: finalSystemPrompt },
-            // 发送给 AI 时，无论是语音还是文字，content 都是文字，所以这里直接传就行
-            ...currentMessages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-          ],
-        }),
-      });
-
-      if (!response.ok) throw new Error(response.statusText);
-      setAiState("typing");
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Cannot read response body");
-      const decoder = new TextDecoder();
-      let aiContent = "";
-      const tempAiMsgId = (Date.now() + 1).toString();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-          const dataStr = trimmed.slice(6);
-          if (dataStr === "[DONE]") continue;
-          try {
-            const data = JSON.parse(dataStr);
-            const token = data.choices?.[0]?.delta?.content || "";
-            if (token) {
-              aiContent += token;
-              setMessages((prev) => {
-                const lastMsg = prev[prev.length - 1];
-                if (
-                  lastMsg.role === "assistant" &&
-                  lastMsg.id === tempAiMsgId
-                ) {
-                  return [
-                    ...prev.slice(0, -1),
-                    { ...lastMsg, content: aiContent },
-                  ];
-                } else {
-                  return [
-                    ...prev,
-                    {
-                      id: tempAiMsgId,
-                      role: "assistant",
-                      content: aiContent,
-                      timestamp: new Date(),
-                    },
-                  ];
-                }
-              });
-            }
-          } catch (e) {}
+          if (targetPersona && targetPersona.avatar)
+            finalMyAvatar = targetPersona.avatar;
+          else if (profile.avatar) finalMyAvatar = profile.avatar;
+          else if (profile.personas && profile.personas.length > 0)
+            finalMyAvatar = profile.personas[0].avatar;
+        } catch (e) {
+          console.error(e);
         }
       }
+      setMyAvatar(finalMyAvatar);
 
-      if (aiContent) {
-        const splitParts = aiContent
-          .split("||")
-          .map((s) => s.trim())
-          .filter((s) => s);
-        const finalAiMessages = splitParts.map((part, index) => ({
-          id: (Date.now() + index + 10).toString(),
-          role: "assistant" as const,
-          content: part,
-          timestamp: new Date(Date.now() + index * 500),
-        }));
-        setMessages((prev) => {
-          const cleanPrev = prev.filter((m) => m.id !== tempAiMsgId);
-          const next = [...cleanPrev, ...finalAiMessages];
-          if (conversationId)
-            localStorage.setItem(
-              `chat_${conversationId}`,
-              JSON.stringify(next)
-            );
-          return next;
-        });
+      const savedBg = localStorage.getItem(`chat_bg_${conversationId}`);
+      if (savedBg) setBgImage(savedBg);
+
+      reloadMessages();
+      clearUnread(conversationId);
+    }
+  }, [conversationId, clearUnread, contactName]);
+
+  useEffect(() => {
+    const handleUpdate = (e: CustomEvent) => {
+      if (String(e.detail.conversationId) === String(conversationId)) {
+        reloadMessages();
+        clearUnread(conversationId);
       }
-    } catch (e: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: "assistant",
-          content: `❌ ${e.message}`,
-          timestamp: new Date(),
-        },
-      ]);
-    } finally {
-      setAiState("idle");
+    };
+    window.addEventListener("chat_updated" as any, handleUpdate);
+    return () =>
+      window.removeEventListener("chat_updated" as any, handleUpdate);
+  }, [conversationId, clearUnread]);
+
+  useEffect(() => {
+    // 仅在非多选模式下自动滚动
+    if (!isSelectionMode) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isPanelOpen, isSelectionMode]);
+
+  useEffect(() => {
+    if (input.trim().length > 0 && replyTimerRef.current) {
+      clearTimeout(replyTimerRef.current);
       replyTimerRef.current = null;
     }
+  }, [input]);
+
+  // === 多选逻辑 ===
+  const enterSelectionMode = (initialMsgId?: string) => {
+    setIsSelectionMode(true);
+    if (initialMsgId) {
+      setSelectedIds(new Set([initialMsgId]));
+    } else {
+      setSelectedIds(new Set());
+    }
   };
 
-  // =========================================================
-  // 2. 修改发送函数：支持 type 和 duration 参数
-  // =========================================================
-  const handleUserSend = (
-    text: string = input,
-    type: "text" | "audio" = "text",
-    duration?: number
-  ) => {
-    if (!text.trim()) return;
+  const exitSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: text,
-      timestamp: new Date(),
-      type: type, // 记录消息类型
-      duration: duration, // 记录语音时长
-    };
+  const toggleSelection = (msgId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
 
+  const handleBatchDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (window.confirm(`确定删除这 ${selectedIds.size} 条消息吗？`)) {
+      const newMessages = messages.filter((m) => !selectedIds.has(m.id));
+      setMessages(newMessages);
+      if (conversationId) {
+        localStorage.setItem(
+          `chat_${conversationId}`,
+          JSON.stringify(newMessages)
+        );
+      }
+      exitSelectionMode();
+    }
+  };
+
+  const handleDeleteMessage = (msgId: string) => {
     setMessages((prev) => {
-      const newMessages = [...prev, userMessage];
+      const newMessages = prev.filter((m) => m.id !== msgId);
       if (conversationId)
         localStorage.setItem(
           `chat_${conversationId}`,
           JSON.stringify(newMessages)
         );
-
-      if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
-
-      setAiState("waiting");
-      replyTimerRef.current = setTimeout(() => {
-        triggerAIResponse(newMessages);
-      }, 4000);
-
       return newMessages;
     });
-    setInput("");
   };
 
+  // ✅ 智能重新说
+  const handleResendMessage = (msg: Message) => {
+    if (conversationId && contactInfo) {
+      regenerateChat(conversationId, msg.id, contactInfo);
+    }
+  };
+
+  const handleContinueMessage = (msg: Message) => {
+    if (conversationId && contactInfo) {
+      // @ts-ignore
+      triggerActiveMessage(conversationId, contactInfo, "continue");
+    }
+  };
+
+  const handleEditMessage = (msg: Message) => {
+    if (msg.role !== "user" || msg.type !== "text") return;
+    setInput(msg.content);
+    handleDeleteMessage(msg.id);
+  };
+
+  const handleUserSend = (
+    text: string,
+    type: "text" | "audio" | "image" | "sticker" = "text",
+    duration?: number,
+    audioUrl?: string,
+    tempId?: string,
+    imageDesc?: string
+  ) => {
+    if (type === "text" && !text?.trim()) return;
+    let updatedMessages: Message[] = [];
+    setMessages((prev) => {
+      let newMessages = [...prev];
+      if (tempId) {
+        newMessages = newMessages.map((msg) =>
+          msg.id === tempId
+            ? { ...msg, content: text, status: "sent" as const }
+            : msg
+        );
+      } else {
+        const finalType = imageDesc ? "sticker" : (type as any);
+        const userMessage: Message = {
+          id: Date.now().toString(),
+          role: "user",
+          content: text || "",
+          timestamp: new Date(),
+          type: finalType,
+          duration: duration,
+          audioUrl: audioUrl,
+          status: type === "audio" && !text ? "sending" : "sent",
+          alt: imageDesc,
+        };
+        newMessages.push(userMessage);
+      }
+      if (conversationId)
+        localStorage.setItem(
+          `chat_${conversationId}`,
+          JSON.stringify(newMessages)
+        );
+      updatedMessages = newMessages;
+      return newMessages;
+    });
+    if (type === "text") setInput("");
+    const isReadyToSendToAI = !(type === "audio" && !text);
+    if (isReadyToSendToAI) {
+      if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
+      replyTimerRef.current = setTimeout(() => {
+        if (conversationId && contactInfo)
+          requestAIReply(conversationId, contactInfo, updatedMessages);
+      }, 6000);
+    }
+  };
+
+  const aiStatus = conversationId ? getChatState(conversationId) : "idle";
   const getHeaderStatus = () => {
-    if (aiState === "thinking") return "对方正在思考...";
-    if (aiState === "typing") return "对方正在输入...";
-    if (aiState === "waiting") return "对方正在偷看你发的消息...";
+    if (aiStatus === "thinking") return "对方正在思考...";
+    if (aiStatus === "typing") return "对方正在输入...";
     return contactInfo?.name || contactName;
+  };
+  const safeContactInfo = contactInfo || {
+    name: contactName,
+    avatar: "🐱",
+    aiName: contactName,
+    myNickname: "我",
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
       <header className="h-14 flex items-center justify-between px-4 border-b border-gray-200 bg-white/90 backdrop-blur-sm shrink-0 z-10">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Link
             href="/chat"
             className="-ml-2 p-2 text-gray-700 hover:bg-gray-100 rounded-full"
           >
             <ChevronLeft className="w-6 h-6" />
           </Link>
-          <div className="ml-1 h-10 flex flex-col justify-center">
-            <div className="font-semibold text-base transition-all duration-200">
+          {safeContactInfo.avatar && (
+            <div className="relative w-9 h-9 shrink-0">
+              <img
+                src={safeContactInfo.avatar}
+                alt="Avatar"
+                className="w-full h-full rounded-full object-cover border border-gray-200"
+              />
+              {aiStatus === "idle" && (
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+              )}
+            </div>
+          )}
+          <div className="flex flex-col justify-center">
+            <div className="font-semibold text-base leading-tight">
               {getHeaderStatus()}
             </div>
-            {aiState === "idle" && (
-              <div className="text-xs text-green-500">在线</div>
-            )}
           </div>
         </div>
         <Link
@@ -371,7 +308,7 @@ export default function ChatPage({
       </header>
 
       <div
-        className="flex-1 overflow-y-auto px-4 pt-4 pb-32"
+        className="flex-1 overflow-y-auto px-1 pt-1 pb-7"
         style={{
           backgroundColor: bgImage ? "transparent" : "#f5f5f5",
           backgroundImage: bgImage ? `url(${bgImage})` : "none",
@@ -382,25 +319,107 @@ export default function ChatPage({
       >
         <MessageList
           messages={messages}
-          isLoading={aiState === "thinking"}
-          contactAvatar={contactInfo?.avatar}
+          isLoading={aiStatus === "thinking" || aiStatus === "typing"}
+          contactInfo={safeContactInfo}
+          contactAvatar={safeContactInfo.avatar}
+          myAvatar={myAvatar}
+          conversationId={conversationId}
+          onDeleteMessage={handleDeleteMessage}
+          onResendMessage={handleResendMessage}
+          onContinueMessage={handleContinueMessage}
+          onEditMessage={handleEditMessage}
+          // ✅ 传递多选 Props
+          isSelectionMode={isSelectionMode}
+          selectedIds={selectedIds}
+          onToggleSelection={toggleSelection}
+          onEnterSelectionMode={enterSelectionMode}
         />
         <div ref={messagesEndRef} />
       </div>
 
-      <InputProvider
-        onInputChange={setInput}
-        onSendAudio={(text, duration) =>
-          handleUserSend(text, "audio", duration)
-        }
-        onSendText={() => handleUserSend(input, "text")}
-        input={input}
-      >
+      {/* 底部根据模式切换 */}
+      {isSelectionMode ? (
+        <div className="h-16 bg-white border-t flex items-center justify-around px-4 z-50 shadow-up">
+          <button
+            onClick={() => alert("暂未实现")}
+            className="flex flex-col items-center gap-1"
+          >
+            <Share className="w-5 h-5 text-gray-600" />
+            <span className="text-[10px] text-gray-500">转发</span>
+          </button>
+          <button
+            onClick={() => alert("暂未实现")}
+            className="flex flex-col items-center gap-1"
+          >
+            <Star className="w-5 h-5 text-gray-600" />
+            <span className="text-[10px] text-gray-500">收藏</span>
+          </button>
+          <button
+            onClick={handleBatchDelete}
+            className="flex flex-col items-center gap-1 text-red-500"
+          >
+            <Trash2 className="w-5 h-5" />
+            <span className="text-[10px]">删除</span>
+          </button>
+          <div className="w-[1px] h-6 bg-gray-200"></div>
+          <button
+            onClick={exitSelectionMode}
+            className="flex flex-col items-center gap-1"
+          >
+            <X className="w-6 h-6 text-gray-500" />
+            <span className="text-[10px] text-gray-500">取消</span>
+          </button>
+        </div>
+      ) : (
         <InputArea
           input={input}
-          isLoading={aiState === "thinking" || aiState === "typing"}
+          isLoading={aiStatus === "thinking" || aiStatus === "typing"}
+          onInputChange={setInput}
+          onSendText={() => handleUserSend(input, "text")}
+          onPanelChange={(isOpen) => {
+            setIsPanelOpen(isOpen);
+            setTimeout(() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 300);
+          }}
+          onSendAudio={async (text, duration, audioBlob, imageDesc) => {
+            if (imageDesc) {
+              handleUserSend(text, "image", 0, undefined, undefined, imageDesc);
+              return;
+            }
+            let audioDataUrl = undefined;
+            if (audioBlob) audioDataUrl = await blobToBase64(audioBlob);
+            const tempId = Date.now().toString();
+            handleUserSend("", "audio", duration, audioDataUrl, undefined);
+            if (audioBlob) {
+              const formData = new FormData();
+              formData.append("file", audioBlob);
+              const res = await fetch("/api/audio", {
+                method: "POST",
+                body: formData,
+              });
+              if (res.ok) {
+                const data = await res.json();
+                handleUserSend(
+                  data.text || "[听不清]",
+                  "audio",
+                  duration,
+                  audioDataUrl,
+                  tempId
+                );
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === tempId
+                      ? { ...m, content: "[转写失败]", status: "error" }
+                      : m
+                  )
+                );
+              }
+            }
+          }}
         />
-      </InputProvider>
+      )}
     </div>
   );
 }

@@ -1,106 +1,96 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 
-// 回调函数增加 duration 参数
-export const useSpeechRecognition = (
-  onResult?: (text: string, duration: number) => void
-) => {
-  const [isListening, setIsListening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// 定义回调类型
+type OnResultCallback = (
+  text: string,
+  duration: number,
+  audioBlob: Blob | null
+) => void;
+
+export const useSpeechRecognition = (onResult: OnResultCallback) => {
+  const [isRecording, setIsRecording] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const isCancelledRef = useRef(false);
-  // 记录开始时间
+  const audioChunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
+  const isAbortedRef = useRef<boolean>(false); // 新增：用于标记是否取消
 
-  const startListening = async () => {
-    setError(null);
-    isCancelledRef.current = false;
-
+  // 开始录音
+  const startListening = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
 
-      let mimeType = "audio/webm";
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "audio/mp4";
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
+      audioChunksRef.current = [];
+      startTimeRef.current = Date.now();
+      isAbortedRef.current = false; // 重置取消标记
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
 
-      mediaRecorder.onstop = async () => {
-        if (isCancelledRef.current) {
-          console.log("录音已取消");
-          stream.getTracks().forEach((t) => t.stop());
+      mediaRecorder.onstop = () => {
+        // 🛑 关键逻辑：如果标记为“取消”，则什么都不做
+        if (isAbortedRef.current) {
+          console.log("录音已取消，不发送");
+          // 停止所有轨道释放麦克风
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
 
-        // 计算时长 (秒)
-        const duration =
-          Math.round((Date.now() - startTimeRef.current) / 1000) || 1;
+        // 正常结束：计算时长并生成 Blob
+        const duration = Math.round((Date.now() - startTimeRef.current) / 1000);
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
 
-        const audioBlob = new Blob(chunksRef.current, { type: mimeType });
-        if (audioBlob.size < 1000) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
+        // 回调传出数据
+        onResult("", duration < 1 ? 1 : duration, audioBlob);
 
-        const formData = new FormData();
-        formData.append("file", audioBlob);
-
-        try {
-          const response = await fetch("/api/transcribe", {
-            method: "POST",
-            body: formData,
-          });
-          const data = await response.json();
-          // 将 文字 和 时长 一起返回
-          if (data.text && onResult) {
-            onResult(data.text, duration);
-          }
-        } catch (err: any) {
-          console.error("转录失败", err);
-          setError("转录失败");
-        } finally {
-          stream.getTracks().forEach((t) => t.stop());
-        }
+        // 停止轨道
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.start();
-      startTimeRef.current = Date.now(); // 记录开始时间
-      setIsListening(true);
-    } catch (err: any) {
-      console.error("麦克风启动失败:", err);
-      setError("无法访问麦克风");
-      setIsListening(false);
+      setIsRecording(true);
+    } catch (error) {
+      console.error("无法访问麦克风:", error);
+      alert("请允许浏览器访问麦克风");
     }
-  };
+  }, [onResult]);
 
-  const stopListening = () => {
-    if (mediaRecorderRef.current && isListening) {
+  // 正常停止（发送）
+  const stopListening = useCallback(() => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
+      isAbortedRef.current = false; // 标记为正常结束
       mediaRecorderRef.current.stop();
-      setIsListening(false);
+      setIsRecording(false);
     }
-  };
+  }, []);
 
-  const abortListening = () => {
-    if (mediaRecorderRef.current && isListening) {
-      isCancelledRef.current = true;
+  // 取消录音（不发送）
+  const abortListening = useCallback(() => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
+      isAbortedRef.current = true; // 标记为取消
       mediaRecorderRef.current.stop();
-      setIsListening(false);
+      setIsRecording(false);
     }
-  };
+  }, []);
 
   return {
-    isListening,
-    startListening,
-    stopListening,
-    abortListening,
-    error,
+    isRecording,
+    startListening, // 对应 InputArea 的调用
+    stopListening, // 对应 InputArea 的调用
+    abortListening, // 对应 InputArea 的调用
+    hasMicrophoneAccess: true,
   };
 };

@@ -1,6 +1,8 @@
-"use client"; // 必须有这行，因为 Provider 只能在客户端运行
+"use client";
 
-import React from "react"; // 👇 必须引入你的 ThemeProvider (根据报错图，路径应该是这个)
+import React from "react";
+import { AIProvider } from "@/context/AIContext";
+// 👇👇👇 1. 注意这里一定要有花括号 { } 👇👇👇
 import { MyThemeProvider } from "@/lib/MyTheme";
 
 export default function ClientLayout({
@@ -9,7 +11,9 @@ export default function ClientLayout({
   children: React.ReactNode;
 }) {
   return (
-    // 👇 关键：必须用 MyThemeProvider 包裹住 children
-    <MyThemeProvider>{children}</MyThemeProvider>
+    // 2. 结构必须是：AI 包 Theme，Theme 包 Children
+    <AIProvider>
+      <MyThemeProvider>{children}</MyThemeProvider>
+    </AIProvider>
   );
 }

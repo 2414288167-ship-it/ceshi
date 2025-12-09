@@ -1,13 +1,19 @@
-// src/app/layout.tsx
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-// 👇 引入刚才写的客户端包装器
+
+// 👇 1. 引入 UnreadProvider
+import { UnreadProvider } from "@/context/UnreadContext";
+// 👇 2. 【关键！】必须引入 AIProvider，不然 AI 不会思考
+import { AIProvider } from "@/context/AIContext";
+
 import ClientLayout from "@/components/ClientLayout";
 
+const inter = Inter({ subsets: ["latin"] });
+
 export const metadata: Metadata = {
-  title: "AI Chat",
+  title: "AI Chat App",
   description: "Chat App",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
   icons: { icon: "/favicon.ico" },
 };
 
@@ -20,11 +26,20 @@ export default function RootLayout({
     <html lang="zh-CN">
       <head>
         <meta charSet="utf-8" />
-        <meta name="theme-color" content="#0a0e27" />
+        <meta name="theme-color" content="#ffffff" />
       </head>
-      <body className="dark antialiased">
-        {/* 👇 使用包装器，而不是直接用 Provider */}
-        <ClientLayout>{children}</ClientLayout>
+      <body className={`${inter.className} antialiased`}>
+        {/* 
+            👇👇👇 核心逻辑层级顺序 👇👇👇
+            1. 最外层：UnreadProvider (负责通知和声音)
+            2. 中间层：AIProvider (负责思考和发消息，它需要调用 Unread 的功能)
+            3. 里层：ClientLayout (负责页面布局)
+        */}
+        <UnreadProvider>
+          <AIProvider>
+            <ClientLayout>{children}</ClientLayout>
+          </AIProvider>
+        </UnreadProvider>
       </body>
     </html>
   );

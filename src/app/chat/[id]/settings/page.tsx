@@ -2,11 +2,181 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from "lucide-react";
 
+// --- 类型定义 ---
 interface PageProps {
   params: Promise<{ id: string }>;
 }
+
+interface ScheduleTask {
+  id: string;
+  time: string;
+  type: "once" | "daily";
+  enabled: boolean;
+}
+
+interface WorldBookCategory {
+  id: number;
+  name: string;
+}
+
+// 对应个人主页的数据结构
+interface UserProfile {
+  personas: {
+    id: string;
+    name: string;
+    description: string;
+  }[];
+}
+
+// --- 辅助组件 ---
+const Section = ({
+  title,
+  children,
+}: {
+  title?: string;
+  children: React.ReactNode;
+}) => (
+  <div className="mb-4">
+    {title && <div className="px-4 py-2 text-xs text-gray-500">{title}</div>}
+    <div className="bg-white px-4 py-1 rounded-xl overflow-hidden shadow-sm">
+      {children}
+    </div>
+  </div>
+);
+
+const SwitchItem = ({ label, desc, value, onChange }: any) => (
+  <div className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-none">
+    <div className="flex flex-col">
+      <span className="text-base text-gray-900">{label}</span>
+      {desc && <span className="text-xs text-gray-400 mt-0.5">{desc}</span>}
+    </div>
+    <div
+      onClick={() => onChange(!value)}
+      className={`w-12 h-7 rounded-full p-0.5 transition-colors duration-200 cursor-pointer ${
+        value ? "bg-[#07c160]" : "bg-gray-300"
+      }`}
+    >
+      <div
+        className={`w-6 h-6 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${
+          value ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </div>
+  </div>
+);
+
+const InputItem = ({
+  label,
+  value,
+  onChange,
+  type = "text",
+  options = [],
+  placeholder = "",
+  suffix = "",
+}: any) => (
+  <div className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-none">
+    <span className="text-base text-gray-900 flex-shrink-0">{label}</span>
+    {type === "select" ? (
+      <div className="flex items-center">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="text-gray-500 bg-transparent outline-none text-right dir-rtl appearance-none pr-1 max-w-[200px] cursor-pointer"
+        >
+          {options.map((opt: any) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <ChevronRight className="w-4 h-4 text-gray-300 ml-1" />
+      </div>
+    ) : (
+      <div className="flex items-center gap-2">
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="text-right text-gray-900 outline-none bg-transparent w-24 placeholder-gray-400"
+        />
+        {suffix && <span className="text-gray-900 text-sm">{suffix}</span>}
+      </div>
+    )}
+  </div>
+);
+
+const BasicInputRow = ({ label, value, onChange }: any) => (
+  <div className="flex items-center justify-between py-4 border-b border-gray-100 last:border-none">
+    <span className="text-base text-gray-900 font-medium">{label}</span>
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-right text-gray-900 outline-none bg-transparent w-2/3"
+    />
+  </div>
+);
+
+const AvatarRow = ({ label, imgUrl, onTriggerUpload }: any) => (
+  <div className="py-4 border-b border-gray-100 last:border-none">
+    <div className="text-base text-gray-900 font-medium mb-3">{label}</div>
+    <div className="flex items-center justify-between">
+      <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200">
+        {imgUrl?.startsWith("data:") || imgUrl?.startsWith("http") ? (
+          <img src={imgUrl} className="w-full h-full object-cover" />
+        ) : (
+          <span className={imgUrl?.length > 2 ? "text-base" : "text-xl"}>
+            {imgUrl}
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onTriggerUpload}
+          className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-md hover:bg-gray-200 transition-colors"
+        >
+          更换
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const ScheduleRow = ({
+  task,
+  onDelete,
+}: {
+  task: ScheduleTask;
+  onDelete: () => void;
+}) => (
+  <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-none">
+    <div className="flex flex-col">
+      <div className="text-lg font-medium text-gray-900">{task.time}</div>
+      <div className="text-xs text-gray-500">
+        {task.type === "daily" ? "每天" : "仅一次"} · 自动发消息
+      </div>
+    </div>
+    <div className="flex items-center gap-3">
+      <div
+        className={`w-2 h-2 rounded-full ${
+          task.enabled ? "bg-green-500" : "bg-gray-300"
+        }`}
+      />
+      <button
+        onClick={onDelete}
+        className="p-2 bg-gray-100 rounded-full text-red-500"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  </div>
+);
+
+// ==========================================
+// 主页面组件
+// ==========================================
 
 export default function ChatSettingsPage({ params }: PageProps) {
   const router = useRouter();
@@ -15,10 +185,61 @@ export default function ChatSettingsPage({ params }: PageProps) {
   // 基础信息
   const [remarkName, setRemarkName] = useState("");
   const [aiName, setAiName] = useState("");
-  const [myNickname, setMyNickname] = useState("我");
   const [contactAvatar, setContactAvatar] = useState("🐱");
-  const [myAvatar, setMyAvatar] = useState("🐳");
   const [friendGroup, setFriendGroup] = useState("未分组");
+
+  // 角色设定与世界书
+  const [worldBook, setWorldBook] = useState("default");
+  const [aiPersona, setAiPersona] = useState("");
+
+  // 🔥 改动 1: 这里的 userPersonaId 变成了 ID，而不是一段文字
+  const [userPersonaId, setUserPersonaId] = useState("default");
+
+  // 🔥 改动 2: 存储“我的所有可选人设”
+  const [myPersonasOptions, setMyPersonasOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  // 存储当前选中的人设的具体描述（用于展示预览）
+  const [currentPersonaDesc, setCurrentPersonaDesc] = useState("");
+
+  // 世界书分类列表状态
+  const [wbCategories, setWbCategories] = useState<WorldBookCategory[]>([]);
+
+  // --- 主动消息 ---
+  const [bgActivity, setBgActivity] = useState(false);
+  const [idleMin, setIdleMin] = useState(30);
+  const [idleMax, setIdleMax] = useState(120);
+
+  // 夜间模式
+  const [dndEnabled, setDndEnabled] = useState(false);
+  const [dndStart, setDndStart] = useState("23:00");
+  const [dndEnd, setDndEnd] = useState("08:00");
+
+  const [realNextTime, setRealNextTime] = useState<string>("--:--:--");
+  const [schedules, setSchedules] = useState<ScheduleTask[]>([]);
+  const [batchEnabled, setBatchEnabled] = useState(false);
+
+  // 弹窗状态
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [newScheduleTime, setNewScheduleTime] = useState("08:00");
+  const [newScheduleType, setNewScheduleType] = useState<"once" | "daily">(
+    "once"
+  );
+
+  // 其他设置
+  const [weatherSync, setWeatherSync] = useState(false);
+  const [location, setLocation] = useState("");
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [voiceId, setVoiceId] = useState("minimax_voice_id");
+  const [voiceLang, setVoiceLang] = useState("auto");
+  const [asideMode, setAsideMode] = useState(false);
+  const [todoSync, setTodoSync] = useState(false);
+  const [descMode, setDescMode] = useState(false);
+  const [timeSense, setTimeSense] = useState(true);
+  const [timezone, setTimezone] = useState("Asia/Shanghai");
+  const [lyricsPos, setLyricsPos] = useState("top");
+
+  const contactAvatarInputRef = useRef<HTMLInputElement>(null);
 
   const groupOptions = [
     "特别关心",
@@ -30,44 +251,57 @@ export default function ChatSettingsPage({ params }: PageProps) {
     "未分组",
   ];
 
-  // 角色设定
-  const [aiPersona, setAiPersona] = useState("");
-  const [worldBook, setWorldBook] = useState("default");
+  // 🔥 改动 3: 加载“我的”所有人设数据
+  useEffect(() => {
+    const userProfileStr = localStorage.getItem("user_profile_v4");
+    if (userProfileStr) {
+      try {
+        const profile: UserProfile = JSON.parse(userProfileStr);
+        if (profile.personas && Array.isArray(profile.personas)) {
+          // 转换为 Select 组件需要的格式
+          const options = profile.personas.map((p) => ({
+            value: p.id,
+            label: p.name,
+            desc: p.description, // 临时存一下描述方便后续查找
+          }));
+          setMyPersonasOptions(options);
+        }
+      } catch (e) {
+        console.error("加载个人信息失败", e);
+      }
+    }
+  }, []);
 
-  // 逻辑与记忆
-  const [bgActivity, setBgActivity] = useState(true);
-  const [shortMem, setShortMem] = useState(30);
-  const [longMem, setLongMem] = useState(10);
+  // 监听选项变化，更新预览描述
+  useEffect(() => {
+    const userProfileStr = localStorage.getItem("user_profile_v4");
+    if (userProfileStr) {
+      const profile: UserProfile = JSON.parse(userProfileStr);
+      const selected = profile.personas.find((p) => p.id === userPersonaId);
+      if (selected) {
+        setCurrentPersonaDesc(selected.description);
+      } else {
+        setCurrentPersonaDesc("");
+      }
+    }
+  }, [userPersonaId]);
 
-  // 环境与语音
-  const [weatherSync, setWeatherSync] = useState(false);
-  const [location, setLocation] = useState(""); // --- 新增：所在地区 ---
-  const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [voiceId, setVoiceId] = useState("minimax_voice_id");
-  const [voiceLang, setVoiceLang] = useState("auto");
+  // 加载世界书数据
+  useEffect(() => {
+    const savedData = localStorage.getItem("worldbook_data");
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        if (parsed.categories && Array.isArray(parsed.categories)) {
+          setWbCategories(parsed.categories);
+        }
+      } catch (e) {
+        console.error("加载世界书数据失败", e);
+      }
+    }
+  }, []);
 
-  // 模式设置
-  const [asideMode, setAsideMode] = useState(false);
-  const [todoSync, setTodoSync] = useState(false);
-  const [descMode, setDescMode] = useState(false);
-  const [timeSense, setTimeSense] = useState(true);
-  const [timezone, setTimezone] = useState("Asia/Shanghai");
-  const [lyricsPos, setLyricsPos] = useState("top");
-
-  const contactAvatarInputRef = useRef<HTMLInputElement>(null);
-  const myAvatarInputRef = useRef<HTMLInputElement>(null);
-
-  const timezoneOptions = [
-    { value: "Asia/Shanghai", label: "中国 - 北京/上海 (UTC+8)" },
-    { value: "Asia/Hong_Kong", label: "中国 - 香港 (UTC+8)" },
-    { value: "Asia/Taipei", label: "中国 - 台北 (UTC+8)" },
-    { value: "Asia/Tokyo", label: "日本 - 东京" },
-    { value: "America/New_York", label: "美国 - 纽约" },
-    { value: "America/Los_Angeles", label: "美国 - 洛杉矶" },
-    { value: "Europe/London", label: "英国 - 伦敦" },
-  ];
-
-  // 初始化加载
+  // 初始化加载联系人设置
   useEffect(() => {
     (async () => {
       const resolvedParams = await params;
@@ -83,45 +317,100 @@ export default function ChatSettingsPage({ params }: PageProps) {
           if (contact) {
             setRemarkName(contact.remark || "");
             setAiName(contact.name || "");
-            setMyNickname(contact.myNickname || "我");
             setContactAvatar(contact.avatar || "🐱");
-            if (contact.myAvatar) setMyAvatar(contact.myAvatar);
             setFriendGroup(contact.group || "未分组");
-            setAiPersona(contact.aiPersona || "");
 
-            // 读取设置
+            // 角色相关
+            setAiPersona(contact.aiPersona || "");
+            // 🔥 读取保存的 userPersonaId，如果没有则默认 default
+            setUserPersonaId(contact.userPersonaId || "default");
+            if (contact.worldBook) setWorldBook(contact.worldBook);
+
+            // 后台活动
+            if (contact.bgActivity !== undefined)
+              setBgActivity(contact.bgActivity);
+            if (contact.idleMin) setIdleMin(contact.idleMin);
+            if (contact.idleMax) setIdleMax(contact.idleMax);
+
+            // 夜间模式
+            if (contact.dndEnabled !== undefined)
+              setDndEnabled(contact.dndEnabled);
+            if (contact.dndStart) setDndStart(contact.dndStart);
+            if (contact.dndEnd) setDndEnd(contact.dndEnd);
+
+            // 批量
+            if (contact.batchEnabled !== undefined)
+              setBatchEnabled(contact.batchEnabled);
+
+            if (contact.schedules) setSchedules(contact.schedules);
+
+            // 其他设置
             if (contact.weatherSync !== undefined)
               setWeatherSync(contact.weatherSync);
-            if (contact.location) setLocation(contact.location); // 读取地区
+            if (contact.location) setLocation(contact.location);
+            if (contact.ttsEnabled !== undefined)
+              setTtsEnabled(contact.ttsEnabled);
+            if (contact.voiceId) setVoiceId(contact.voiceId);
+            if (contact.voiceLang) setVoiceLang(contact.voiceLang);
             if (contact.asideMode !== undefined)
               setAsideMode(contact.asideMode);
+            if (contact.todoSync !== undefined) setTodoSync(contact.todoSync);
             if (contact.descMode !== undefined) setDescMode(contact.descMode);
             if (contact.timeSense !== undefined)
               setTimeSense(contact.timeSense);
             if (contact.timezone) setTimezone(contact.timezone);
+            if (contact.lyricsPos) setLyricsPos(contact.lyricsPos);
           }
         }
       }
     })();
   }, [params]);
 
-  const handleAvatarChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    isMyAvatar: boolean
-  ) => {
+  // 监听真实时间
+  useEffect(() => {
+    if (!id) return;
+    const checkRealTime = () => {
+      const targetStr = localStorage.getItem(`ai_target_time_${id}`);
+      if (targetStr) {
+        const date = new Date(Number(targetStr));
+        const timeStr = date.toLocaleTimeString("zh-CN", { hour12: false });
+        setRealNextTime(timeStr);
+      } else {
+        setRealNextTime("计算中 / 等待触发");
+      }
+    };
+    checkRealTime();
+    const interval = setInterval(checkRealTime, 1000);
+    return () => clearInterval(interval);
+  }, [id]);
+
+  const handleAddSchedule = () => {
+    const newTask: ScheduleTask = {
+      id: Date.now().toString(),
+      time: newScheduleTime,
+      type: newScheduleType,
+      enabled: true,
+    };
+    setSchedules([...schedules, newTask]);
+    setShowScheduleModal(false);
+  };
+
+  const handleDeleteSchedule = (taskId: string) => {
+    setSchedules(schedules.filter((t) => t.id !== taskId));
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
-        if (isMyAvatar) setMyAvatar(base64);
-        else setContactAvatar(base64);
+        setContactAvatar(base64);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // 保存逻辑
   const handleSave = () => {
     if (typeof window !== "undefined") {
       const contactsStr = localStorage.getItem("contacts");
@@ -133,17 +422,30 @@ export default function ChatSettingsPage({ params }: PageProps) {
               ...c,
               remark: remarkName,
               name: aiName,
-              myNickname: myNickname,
               avatar: contactAvatar,
-              myAvatar: myAvatar,
               group: friendGroup,
               aiPersona: aiPersona,
+              userPersonaId: userPersonaId, // 🔥 保存的是 ID，不是文字了
+              worldBook: worldBook,
+              bgActivity,
+              idleMin,
+              idleMax,
+              dndEnabled,
+              dndStart,
+              dndEnd,
+              batchEnabled,
+              schedules,
               weatherSync,
-              location, // 保存地区
+              location,
+              ttsEnabled,
+              voiceId,
+              voiceLang,
               asideMode,
+              todoSync,
               descMode,
               timeSense,
               timezone,
+              lyricsPos,
             };
           }
           return c;
@@ -155,124 +457,13 @@ export default function ChatSettingsPage({ params }: PageProps) {
     }
   };
 
-  // --- 辅助组件 ---
-  const Section = ({
-    title,
-    children,
-  }: {
-    title?: string;
-    children: React.ReactNode;
-  }) => (
-    <div className="mb-4">
-      {title && <div className="px-4 py-2 text-xs text-gray-500">{title}</div>}
-      <div className="bg-white px-4 py-1 rounded-xl overflow-hidden shadow-sm">
-        {children}
-      </div>
-    </div>
-  );
-
-  const SwitchItem = ({ label, desc, value, onChange }: any) => (
-    <div className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-none">
-      <div className="flex flex-col">
-        <span className="text-base text-gray-900">{label}</span>
-        {desc && <span className="text-xs text-gray-400 mt-0.5">{desc}</span>}
-      </div>
-      <div
-        onClick={() => onChange(!value)}
-        className={`w-12 h-7 rounded-full p-0.5 transition-colors duration-200 cursor-pointer ${
-          value ? "bg-[#07c160]" : "bg-gray-300"
-        }`}
-      >
-        <div
-          className={`w-6 h-6 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${
-            value ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
-      </div>
-    </div>
-  );
-
-  const InputItem = ({
-    label,
-    value,
-    onChange,
-    type = "text",
-    options = [],
-    placeholder = "",
-  }: any) => (
-    <div className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-none">
-      <span className="text-base text-gray-900 flex-shrink-0">{label}</span>
-      {type === "select" ? (
-        <div className="flex items-center">
-          <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="text-gray-500 bg-transparent outline-none text-right dir-rtl appearance-none pr-1 max-w-[200px]"
-          >
-            {options.map((opt: any) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <ChevronRight className="w-4 h-4 text-gray-300 ml-1" />
-        </div>
-      ) : (
-        <input
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="text-right text-gray-900 outline-none bg-transparent w-40 placeholder-gray-400"
-        />
-      )}
-    </div>
-  );
-
-  const BasicInputRow = ({ label, value, onChange }: any) => (
-    <div className="flex items-center justify-between py-4 border-b border-gray-100 last:border-none">
-      <span className="text-base text-gray-900 font-medium">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="text-right text-gray-900 outline-none bg-transparent w-2/3"
-      />
-    </div>
-  );
-
-  const AvatarRow = ({ label, imgUrl, onTriggerUpload }: any) => (
-    <div className="py-4 border-b border-gray-100 last:border-none">
-      <div className="text-base text-gray-900 font-medium mb-3">{label}</div>
-      <div className="flex items-center justify-between">
-        <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200">
-          {imgUrl?.startsWith("data:") || imgUrl?.startsWith("http") ? (
-            <img src={imgUrl} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-2xl">{imgUrl}</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onTriggerUpload}
-            className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-md hover:bg-gray-200 transition-colors"
-          >
-            更换
-          </button>
-          <button className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-md hover:bg-gray-200">
-            图库
-          </button>
-          <button className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-md hover:bg-gray-200">
-            挂件
-          </button>
-          {label === "我的头像" && (
-            <button className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-md hover:bg-gray-200">
-              预设
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  const worldBookOptions = [
+    { value: "default", label: "默认世界观" },
+    ...wbCategories.map((cat) => ({
+      value: String(cat.id),
+      label: cat.name,
+    })),
+  ];
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f5f5f5] text-gray-900">
@@ -281,14 +472,7 @@ export default function ChatSettingsPage({ params }: PageProps) {
         ref={contactAvatarInputRef}
         hidden
         accept="image/*"
-        onChange={(e) => handleAvatarChange(e, false)}
-      />
-      <input
-        type="file"
-        ref={myAvatarInputRef}
-        hidden
-        accept="image/*"
-        onChange={(e) => handleAvatarChange(e, true)}
+        onChange={handleAvatarChange}
       />
 
       <header className="h-14 flex items-center justify-between px-2 bg-white border-b border-gray-200 sticky top-0 z-20">
@@ -298,7 +482,7 @@ export default function ChatSettingsPage({ params }: PageProps) {
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <h1 className="text-lg font-medium">聊天详情</h1>
+        <h1 className="text-lg font-medium">聊天设置</h1>
         <button
           onClick={handleSave}
           className="px-3 py-1.5 bg-[#07c160] text-white text-sm rounded-md mr-2 active:opacity-80"
@@ -308,32 +492,21 @@ export default function ChatSettingsPage({ params }: PageProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto pt-4 pb-10 px-3">
+        {/* 基础信息 */}
         <Section>
           <BasicInputRow
             label="备注名 / 群名"
             value={remarkName}
             onChange={setRemarkName}
           />
-          <BasicInputRow
-            label="对方本名 (AI识别用)"
-            value={aiName}
-            onChange={setAiName}
-          />
-          <BasicInputRow
-            label="我的昵称"
-            value={myNickname}
-            onChange={setMyNickname}
-          />
+          <BasicInputRow label="对方本名" value={aiName} onChange={setAiName} />
+
           <AvatarRow
             label="对方头像"
             imgUrl={contactAvatar}
             onTriggerUpload={() => contactAvatarInputRef.current?.click()}
           />
-          <AvatarRow
-            label="我的头像"
-            imgUrl={myAvatar}
-            onTriggerUpload={() => myAvatarInputRef.current?.click()}
-          />
+
           <div className="flex items-center justify-between py-4">
             <span className="text-base text-gray-900 font-medium">
               好友分组
@@ -356,14 +529,24 @@ export default function ChatSettingsPage({ params }: PageProps) {
                   <ChevronRight className="w-3 h-3 text-gray-400 rotate-90 ml-2" />
                 </div>
               </div>
-              <button className="p-1.5 bg-gray-100 rounded-md text-gray-500 hover:bg-gray-200">
-                <Settings className="w-4 h-4" />
-              </button>
             </div>
           </div>
         </Section>
 
-        <Section title="角色设定">
+        {/* 角色设定与世界书 */}
+        <Section title="角色设定 (World Book Setting)">
+          {/* 1. 关联世界书 */}
+          <InputItem
+            label="关联世界书"
+            type="select"
+            value={worldBook}
+            onChange={setWorldBook}
+            options={worldBookOptions}
+          />
+
+          <div className="border-t border-gray-100 my-2"></div>
+
+          {/* 2. 对方人设 */}
           <div className="py-3">
             <div className="text-base text-gray-900 mb-2 font-medium">
               对方人设 (AI Persona)
@@ -371,45 +554,147 @@ export default function ChatSettingsPage({ params }: PageProps) {
             <textarea
               value={aiPersona}
               onChange={(e) => setAiPersona(e.target.value)}
-              placeholder="输入详细的角色设定..."
+              placeholder="输入AI的角色设定、性格、背景..."
               className="w-full h-24 bg-gray-50 rounded-lg p-3 text-sm text-gray-700 outline-none border border-gray-200 resize-none focus:border-green-500 transition-colors"
             />
           </div>
+
+          <div className="border-t border-gray-100 my-2"></div>
+
+          {/* 🔥 3. 我的设定 (改为了选择器) */}
           <InputItem
-            label="关联世界书"
+            label="我的设定 (User Persona)"
             type="select"
-            value={worldBook}
-            onChange={setWorldBook}
-            options={[
-              { value: "default", label: "默认世界观" },
-              { value: "cyberpunk", label: "赛博朋克" },
-              { value: "magic", label: "魔法大陆" },
-            ]}
+            value={userPersonaId}
+            onChange={setUserPersonaId}
+            options={myPersonasOptions}
           />
+
+          {/* 显示当前选中人设的预览描述 (只读) */}
+          {currentPersonaDesc && (
+            <div className="mt-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs text-gray-400 mb-1">设定预览:</div>
+              <p className="text-xs text-gray-600 line-clamp-3 leading-relaxed">
+                {currentPersonaDesc}
+              </p>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 mt-2">
+            *
+            请在「我」的页面创建和管理人设。在此处选择人设后，AI将使用该人设的头像、名称和性格与你互动。
+          </p>
         </Section>
 
-        <Section>
+        {/* --- 主动消息与记忆 --- */}
+        <Section title="主动消息">
           <SwitchItem
             label="启用独立后台活动"
             desc="允许角色在后台主动发消息"
             value={bgActivity}
             onChange={setBgActivity}
           />
-          <InputItem
-            label="短期记忆条数"
-            type="number"
-            value={shortMem}
-            onChange={setShortMem}
-          />
-          <InputItem
-            label="挂载记忆条数"
-            type="number"
-            value={longMem}
-            onChange={setLongMem}
-          />
+
+          {bgActivity && (
+            <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+              <InputItem
+                label="最短闲置时长"
+                type="number"
+                value={idleMin}
+                onChange={(v: string) => setIdleMin(Number(v))}
+                suffix="分钟"
+              />
+              <InputItem
+                label="最长闲置时长"
+                type="number"
+                value={idleMax}
+                onChange={(v: string) => setIdleMax(Number(v))}
+                suffix="分钟"
+              />
+
+              <div className="border-t border-gray-100 mt-2 pt-2">
+                <SwitchItem
+                  label="夜间免打扰"
+                  desc="指定时间段内AI不主动发消息"
+                  value={dndEnabled}
+                  onChange={setDndEnabled}
+                />
+                {dndEnabled && (
+                  <>
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-gray-600 text-sm ml-4">
+                        开始时间 (睡觉)
+                      </span>
+                      <input
+                        type="time"
+                        value={dndStart}
+                        onChange={(e) => setDndStart(e.target.value)}
+                        className="bg-gray-100 rounded p-1 text-sm outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-gray-600 text-sm ml-4">
+                        结束时间 (起床)
+                      </span>
+                      <input
+                        type="time"
+                        value={dndEnd}
+                        onChange={(e) => setDndEnd(e.target.value)}
+                        className="bg-gray-100 rounded p-1 text-sm outline-none"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-gray-100 mt-2 pt-2">
+                <SwitchItem
+                  label="启用消息连发 (Batch)"
+                  desc="闲置触发时，AI可能会连续发送多条消息"
+                  value={batchEnabled}
+                  onChange={setBatchEnabled}
+                />
+              </div>
+
+              <div className="flex items-center justify-between py-3.5 border-b border-gray-100 mt-2">
+                <span className="text-base text-gray-900 font-medium">
+                  预计触发时间
+                </span>
+                <span className="text-green-600 font-bold font-mono text-base">
+                  {realNextTime}
+                </span>
+              </div>
+
+              <div className="mt-2 pt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500 font-medium ml-1">
+                    定时主动发消息 (闹钟)
+                  </span>
+                  <button
+                    onClick={() => setShowScheduleModal(true)}
+                    className="flex items-center gap-1 text-[#07c160] text-xs px-2 py-1 bg-green-50 rounded-md active:bg-green-100"
+                  >
+                    <Plus className="w-3 h-3" /> 添加
+                  </button>
+                </div>
+                {schedules.length === 0 && (
+                  <div className="text-center py-4 text-gray-400 text-sm bg-gray-50 rounded-lg mb-2 border border-dashed border-gray-200">
+                    暂无定时任务
+                  </div>
+                )}
+                {schedules.map((task) => (
+                  <ScheduleRow
+                    key={task.id}
+                    task={task}
+                    onDelete={() => handleDeleteSchedule(task.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </Section>
 
-        {/* --- 环境与语音 (新增了所在地区输入框) --- */}
+        {/* ... 其他 Sections ... */}
         <Section>
           <SwitchItem
             label="启用实时天气同步"
@@ -418,10 +703,9 @@ export default function ChatSettingsPage({ params }: PageProps) {
           />
           {weatherSync && (
             <InputItem
-              label="所在地区 (城市)"
+              label="所在地区"
               value={location}
               onChange={setLocation}
-              placeholder="例如: 上海"
             />
           )}
           <SwitchItem
@@ -437,16 +721,11 @@ export default function ChatSettingsPage({ params }: PageProps) {
                 onChange={setVoiceId}
               />
               <InputItem
-                label="语音语言/方言"
+                label="语言"
                 type="select"
                 value={voiceLang}
                 onChange={setVoiceLang}
-                options={[
-                  { value: "auto", label: "自动识别 (Auto)" },
-                  { value: "zh", label: "中文" },
-                  { value: "en", label: "English" },
-                  { value: "jp", label: "日语" },
-                ]}
+                options={[{ value: "auto", label: "自动" }]}
               />
             </>
           )}
@@ -455,19 +734,16 @@ export default function ChatSettingsPage({ params }: PageProps) {
         <Section>
           <SwitchItem
             label="启用旁白模式"
-            desc="AI每轮回复都会附带环境或心理描写"
             value={asideMode}
             onChange={setAsideMode}
           />
           <SwitchItem
             label="启用待办事项同步"
-            desc="开启后，AI将读取【今日】及【未完成】"
             value={todoSync}
             onChange={setTodoSync}
           />
           <SwitchItem
-            label="线下模式 (描写模式)"
-            desc="AI将输出包含动作/心理的描写文本"
+            label="线下模式"
             value={descMode}
             onChange={setDescMode}
           />
@@ -477,99 +753,76 @@ export default function ChatSettingsPage({ params }: PageProps) {
             onChange={setTimeSense}
           />
           <InputItem
-            label="时区设置"
+            label="时区"
             type="select"
             value={timezone}
             onChange={setTimezone}
-            options={timezoneOptions}
+            options={[{ value: "Asia/Shanghai", label: "中国" }]}
+          />
+          <InputItem
+            label="歌词栏"
+            type="select"
+            value={lyricsPos}
+            onChange={setLyricsPos}
+            options={[{ value: "top", label: "顶部" }]}
           />
         </Section>
+      </div>
 
-        <Section title="效果预览">
-          {/* 预览部分代码保持不变... */}
-          <div className="py-4 flex flex-col gap-3">
-            <div className="flex gap-2">
-              <div className="w-10 h-10 rounded-lg bg-gray-200 shrink-0 overflow-hidden">
-                {contactAvatar?.startsWith("data:") ||
-                contactAvatar?.startsWith("http") ? (
-                  <img
-                    src={contactAvatar}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-2xl flex items-center justify-center h-full">
-                    {contactAvatar}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col gap-1 max-w-[70%]">
-                <div className="text-[10px] text-gray-400">08:00</div>
-                <div className="bg-white p-2.5 rounded-lg border border-gray-200 text-sm shadow-sm relative">
-                  {lyricsPos === "top" && (
-                    <div className="text-[10px] text-gray-400 mb-1">
-                      ♪ 歌词位置预览 ♪
-                    </div>
-                  )}
-                  对方消息预览
-                  {lyricsPos === "bottom" && (
-                    <div className="text-[10px] text-gray-400 mt-1">
-                      ♪ 歌词位置预览 ♪
-                    </div>
-                  )}
-                </div>
-              </div>
+      {/* 定时任务 Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                添加定时消息
+              </h3>
+              <button onClick={() => setShowScheduleModal(false)}>
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
             </div>
-            <div className="flex gap-2 flex-row-reverse">
-              <div className="w-10 h-10 rounded-lg bg-gray-200 shrink-0 overflow-hidden">
-                {myAvatar?.startsWith("data:") ||
-                myAvatar?.startsWith("http") ? (
-                  <img src={myAvatar} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl flex items-center justify-center h-full">
-                    {myAvatar}
-                  </span>
-                )}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500">发送时间</label>
+                <input
+                  type="time"
+                  value={newScheduleTime}
+                  onChange={(e) => setNewScheduleTime(e.target.value)}
+                  className="bg-gray-100 rounded-lg p-3 text-xl font-bold text-center outline-none"
+                />
               </div>
-              <div className="flex flex-col gap-1 items-end max-w-[70%]">
-                <div className="text-[10px] text-gray-400">08:00</div>
-                <div className="bg-[#95ec69] p-2.5 rounded-lg text-sm shadow-sm text-black">
-                  我的消息预览
-                </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setNewScheduleType("once")}
+                  className={`flex-1 py-2 text-sm rounded-lg border ${
+                    newScheduleType === "once"
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "border-gray-200"
+                  }`}
+                >
+                  仅一次
+                </button>
+                <button
+                  onClick={() => setNewScheduleType("daily")}
+                  className={`flex-1 py-2 text-sm rounded-lg border ${
+                    newScheduleType === "daily"
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "border-gray-200"
+                  }`}
+                >
+                  每天
+                </button>
               </div>
-            </div>
-          </div>
-          <div className="border-t border-gray-100 pt-3">
-            <InputItem
-              label="歌词栏设置"
-              type="select"
-              value={lyricsPos}
-              onChange={setLyricsPos}
-              options={[
-                { value: "top", label: "顶部" },
-                { value: "bottom", label: "底部" },
-                { value: "none", label: "不显示" },
-              ]}
-            />
-          </div>
-        </Section>
-
-        {/* 数据管理保持不变 */}
-        <div className="mb-8">
-          <div className="bg-white px-4">
-            <div className="py-3.5 border-b border-gray-100 flex justify-between items-center active:bg-gray-50 cursor-pointer">
-              <span className="text-gray-900">导出聊天记录</span>
-              <ChevronRight className="w-4 h-4 text-gray-300" />
-            </div>
-            <div className="py-3.5 border-b border-gray-100 flex justify-between items-center active:bg-gray-50 cursor-pointer">
-              <span className="text-gray-900">导入聊天记录</span>
-              <ChevronRight className="w-4 h-4 text-gray-300" />
-            </div>
-            <div className="py-3.5 flex justify-center items-center active:bg-gray-50 cursor-pointer text-red-600 font-medium">
-              拉黑对方 / 移出群聊
+              <button
+                onClick={handleAddSchedule}
+                className="w-full bg-[#07c160] text-white py-3 rounded-xl font-medium mt-2"
+              >
+                确认添加
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
